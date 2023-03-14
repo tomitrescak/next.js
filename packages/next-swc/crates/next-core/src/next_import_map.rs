@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use anyhow::{Context, Result};
-use turbo_tasks::Value;
+use turbo_tasks::{Value, ValueToString};
 use turbo_tasks_fs::{glob::GlobVc, FileSystem, FileSystemPathVc};
 use turbopack::{resolve_options, resolve_options_context::ResolveOptionsContext};
 use turbopack_core::{
@@ -66,7 +66,7 @@ pub async fn get_next_client_import_map(
             );
             insert_alias_to_alternatives(
                 &mut import_map,
-                format!("{VIRTUAL_PACKAGE_NAME}/internal/_error"),
+                format!("{VIRTUAL_PACKAGE_NAME}/pages/_error"),
                 vec![
                     request_to_import_mapping(pages_dir, "./_error"),
                     request_to_import_mapping(pages_dir, "next/error"),
@@ -319,7 +319,7 @@ pub async fn insert_next_server_special_aliases(
             );
             insert_alias_to_alternatives(
                 import_map,
-                format!("{VIRTUAL_PACKAGE_NAME}/internal/_error"),
+                format!("{VIRTUAL_PACKAGE_NAME}/pages/_error"),
                 vec![
                     request_to_import_mapping(pages_dir, "./_error"),
                     external_request_to_import_mapping("next/error"),

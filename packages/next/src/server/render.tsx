@@ -627,6 +627,8 @@ export async function renderToHTML(
       .map((script: any) => script.props)
   }
 
+  console.log('Mounting the router...', { RouterContext })
+
   const AppContainer = ({ children }: { children: JSX.Element }) => (
     <AppRouterContext.Provider value={appRouter}>
       <SearchParamsContext.Provider value={adaptForSearchParams(router)}>

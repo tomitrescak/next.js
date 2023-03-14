@@ -35,7 +35,7 @@ use turbopack_node::{
     transforms::webpack::{WebpackLoaderConfigItems, WebpackLoaderConfigItemsVc},
 };
 
-use crate::embed_js::next_asset;
+use crate::{embed_js::next_asset, mode::NextMode};
 
 #[turbo_tasks::value(serialization = "custom", eq = "manual")]
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -541,14 +541,14 @@ fn next_configs() -> StringsVc {
 }
 
 #[turbo_tasks::function]
-pub async fn load_next_config(execution_context: ExecutionContextVc) -> Result<NextConfigVc> {
-    let ExecutionContext { project_path, .. } = *execution_context.await?;
-    let find_config_result = find_context_file(project_path, next_configs());
+pub async fn load_next_config(execution_context: ExecutionContextVc, mode: Value<NextMode>) -> Result<NextConfigVc> {
+    let ExecutionContext { project_root, .. } = *execution_context.await?;
+    let find_config_result = find_context_file(project_root, next_configs());
     let config_file = match &*find_config_result.await? {
         FindContextFileResult::Found(config_path, _) => Some(*config_path),
         FindContextFileResult::NotFound(_) => None,
     };
-    load_next_config_internal(execution_context, config_file)
+    load_next_config_internal(execution_context, config_file, mode)
         .issue_context(config_file, "Loading Next.js config")
         .await
 }
@@ -557,9 +557,10 @@ pub async fn load_next_config(execution_context: ExecutionContextVc) -> Result<N
 pub async fn load_next_config_internal(
     execution_context: ExecutionContextVc,
     config_file: Option<FileSystemPathVc>,
+    mode: Value<NextMode>,
 ) -> Result<NextConfigVc> {
     let ExecutionContext {
-        project_path,
+        project_root,
         chunking_context,
         env,
     } = *execution_context.await?;
@@ -570,7 +571,12 @@ pub async fn load_next_config_internal(
     import_map.insert_exact_alias("styled-jsx", ImportMapping::External(None).into());
     import_map.insert_wildcard_alias("styled-jsx/", ImportMapping::External(None).into());
 
-    let context = node_evaluate_asset_context(project_path, Some(import_map.cell()), None);
+    let context = node_evaluate_asset_context(
+        project_root,
+        Some(import_map.cell()),
+        None,
+        mode.node_env().to_string(),
+    );
     let config_asset = config_file.map(SourceAssetVc::new);
 
     let config_changed = config_asset.map_or_else(CompletionVc::immutable, |config_asset| {
@@ -589,12 +595,11 @@ pub async fn load_next_config_internal(
         next_asset("entry/config/next.js"),
         Value::new(ReferenceType::Entry(EntryReferenceSubType::Undefined)),
     );
-
     let config_value = evaluate(
         load_next_config_asset,
-        project_path,
+        project_root,
         env,
-        config_asset.map_or_else(|| AssetIdentVc::from_path(project_path), |c| c.ident()),
+        config_asset.map_or_else(|| AssetIdentVc::from_path(project_root), |c| c.ident()),
         context,
         chunking_context.with_layer("next_config"),
         None,

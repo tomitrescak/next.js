@@ -58,6 +58,7 @@ impl Transition for NextServerToClientTransition {
                     use_define_for_class_fields: false,
                 },
                 EcmascriptInputTransform::React {
+                    development: true,
                     refresh: false,
                     import_source: OptionStringVc::cell(None),
                     runtime: OptionStringVc::cell(None),
