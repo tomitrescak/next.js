@@ -594,7 +594,7 @@ export default async function build(
       }
       NextBuildContext.previewProps = previewProps
 
-      const mappedPages = nextBuildSpan
+      let mappedPages = nextBuildSpan
         .traceChild('create-pages-mapping')
         .traceFn(() =>
           createPagesMapping({
@@ -605,6 +605,24 @@ export default async function build(
             pagesDir,
           })
         )
+
+      // TODO(alexkirsz) Filter out pages.
+      mappedPages = Object.fromEntries(
+        Object.entries(mappedPages).filter(([page, pageMap]) => {
+          if (process.env.TURBOPACK_DEBUG) {
+            console.log(page)
+          }
+          return (
+            page === '/' ||
+            // page === '/enterprise' ||
+            page === '/404' ||
+            page === '/_app' ||
+            page === '/_document' ||
+            page === '/_error'
+          )
+        })
+      )
+
       NextBuildContext.mappedPages = mappedPages
 
       let mappedAppPages: { [page: string]: string } | undefined
@@ -622,6 +640,10 @@ export default async function build(
               pagesDir: pagesDir,
             })
           )
+
+        // TODO(alexkirsz) Filter out app pages.
+        mappedAppPages = {}
+
         NextBuildContext.mappedAppPages = mappedAppPages
       }
 
@@ -662,22 +684,6 @@ export default async function build(
         pages: pagesPageKeys,
         app: appPageKeys.length > 0 ? appPageKeys : undefined,
       }
-
-      // TODO(alexkirsz) Filter out pages.
-      pageKeys.pages = pageKeys.pages.filter((page) => {
-        if (process.env.TURBOPACK_DEBUG) {
-          console.log(page)
-        }
-        return (
-          page === '/' ||
-          page === '/enterprise' ||
-          page === '/404' ||
-          page === '/_app' ||
-          page === '/_document' ||
-          page === '/_error'
-        )
-      })
-      pageKeys.app = undefined
 
       const numConflictingAppPaths = conflictingAppPagePaths.length
       if (mappedAppPages && numConflictingAppPaths > 0) {

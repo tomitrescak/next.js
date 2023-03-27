@@ -118,7 +118,6 @@ module.exports = {
       src: './',
       artifactDirectory: './__generated__',
       language: 'typescript',
-      eagerEsModules: false;
     },
   },
 }

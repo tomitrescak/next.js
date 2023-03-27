@@ -15,22 +15,28 @@ use next_core::{
 };
 use serde::Serialize;
 use turbo_tasks::{
-    CollectiblesSource, CompletionVc, RawVc, TransientInstance, TransientValue, TryJoinIterExt,
-    Value, ValueToString,
+    primitives::StringVc, CollectiblesSource, CompletionVc, RawVc, TransientInstance,
+    TransientValue, TryJoinIterExt, Value, ValueToString,
 };
-use turbo_tasks_fs::{DiskFileSystemVc, FileContent, FileSystem, FileSystemVc};
+use turbo_tasks_fs::{
+    rope::{Rope, RopeBuilder},
+    DiskFileSystemVc, FileContent, FileContentVc, FileSystem, FileSystemVc,
+};
 use turbopack::evaluate_context::node_build_environment;
 use turbopack_cli_utils::issue::{ConsoleUiVc, LogOptions};
 use turbopack_core::{
-    asset::{Asset, AssetVc, AssetsVc},
-    chunk::ChunkGroupVc,
+    asset::{Asset, AssetContent, AssetContentVc, AssetVc, AssetsVc},
+    chunk::{ChunkGroupVc, ChunkReferenceVc, ChunksVc},
     environment::ServerAddrVc,
+    ident::{AssetIdent, AssetIdentVc},
     issue::{IssueReporter, IssueReporterVc, IssueSeverity, IssueVc},
+    reference::AssetReferencesVc,
     virtual_fs::VirtualFileSystemVc,
 };
 use turbopack_dev::DevChunkingContextVc;
 use turbopack_node::{
     all_assets_from_entries, all_assets_from_entry, execution_context::ExecutionContextVc,
+    get_intermediate_asset,
 };
 
 use crate::{build_options::BuildOptions, next_pages::page_chunks::get_page_chunks};
@@ -144,7 +150,7 @@ pub(crate) async fn next_build(options: TransientInstance<BuildOptions>) -> Resu
 
                 // TODO(alexkirsz) Filter out pages.
                 match next_router_path.to_string().as_str() {
-                    "_app" | "_error" | "_document" | "" | "enterprise" | "404" => {}
+                    "_app" | "_error" | "_document" | "" | "404" => {}
                     _ => {
                         return Ok(None);
                     }
@@ -154,32 +160,56 @@ pub(crate) async fn next_build(options: TransientInstance<BuildOptions>) -> Resu
                     eprintln!("next_router_path: {:?}", next_router_path.to_string());
                 }
 
+                let node_chunk_group = ChunkGroupVc::from_chunk(page_chunk.node_chunk);
+                let node_chunks = node_chunk_group.chunks();
+
+                // We need to convert the node chunk group into a single chunk.
+                let concatenated_chunks_asset: AssetVc = ConcatenatedChunksAsset {
+                    entry: page_chunk.node_chunk.into(),
+                    chunks: node_chunks,
+                }
+                .cell()
+                .into();
+
+                // let concatenated_chunks_asset = page_chunk.node_chunk.into();
+
+                if debug {
+                    eprintln!(
+                        "next_router_path: {:?}, computing all node assets",
+                        next_router_path.to_string()
+                    );
+                }
+
                 // We can't use partitioning for client assets as client assets might be created
                 // by non-client assets referred from client assets.
                 // Although this should perhaps be enforced by Turbopack semantics.
-                let all_node_assets: Vec<_> =
-                    all_assets_from_entry(page_chunk.node_chunk.as_asset())
-                        .await?
-                        .iter()
-                        .map(|asset| {
-                            let node_root = node_root.clone();
-                            async move {
-                                Ok((
-                                    asset.ident().path().await?.is_inside(&*node_root.await?),
-                                    asset,
-                                ))
-                            }
-                        })
-                        .try_join()
-                        .await?
-                        .into_iter()
-                        .filter_map(
-                            |(is_inside, asset)| if is_inside { Some(*asset) } else { None },
-                        )
-                        .collect();
+                let all_node_assets: Vec<_> = all_assets_from_entry(concatenated_chunks_asset)
+                    .await?
+                    .iter()
+                    .map(|asset| {
+                        let node_root = node_root.clone();
+                        async move {
+                            Ok((
+                                asset.ident().path().await?.is_inside(&*node_root.await?),
+                                asset,
+                            ))
+                        }
+                    })
+                    .try_join()
+                    .await?
+                    .into_iter()
+                    .filter_map(|(is_inside, asset)| if is_inside { Some(*asset) } else { None })
+                    .collect();
 
                 let client_chunk_group = ChunkGroupVc::from_chunk(page_chunk.client_chunk);
                 let client_chunks = client_chunk_group.chunks();
+
+                if debug {
+                    eprintln!(
+                        "next_router_path: {:?}, computing all client assets",
+                        next_router_path.to_string()
+                    );
+                }
 
                 // We can't use partitioning for client assets as client assets might be created
                 // by non-client assets referred from client assets.
@@ -210,7 +240,7 @@ pub(crate) async fn next_build(options: TransientInstance<BuildOptions>) -> Resu
 
                 Ok(Some((
                     next_router_path,
-                    page_chunk.node_chunk,
+                    concatenated_chunks_asset,
                     all_node_assets,
                     client_chunks,
                     all_client_assets,
@@ -432,6 +462,79 @@ pub(crate) async fn next_build(options: TransientInstance<BuildOptions>) -> Resu
     }
 
     Ok(CompletionVc::immutable())
+}
+
+/// This is a hack to make sure "module" refers to the correct module in the
+/// runtime.
+#[turbo_tasks::value]
+struct ConcatenatedChunksAsset {
+    entry: AssetVc,
+    chunks: ChunksVc,
+}
+
+#[turbo_tasks::function]
+fn concatenated_modifier() -> StringVc {
+    StringVc::cell("concatenated".into())
+}
+
+#[turbo_tasks::value_impl]
+impl Asset for ConcatenatedChunksAsset {
+    #[turbo_tasks::function]
+    fn ident(&self) -> AssetIdentVc {
+        AssetIdentVc::new(Value::new(AssetIdent {
+            path: self.entry.ident().path().parent().join("concatenated.js"),
+            query: None,
+            fragment: None,
+            assets: vec![],
+            modifiers: vec![],
+        }))
+    }
+
+    #[turbo_tasks::function]
+    async fn content(&self) -> Result<AssetContentVc> {
+        let mut content = RopeBuilder::default();
+        let files = self
+            .chunks
+            .await?
+            .iter()
+            .map(|chunk| async move {
+                if &*chunk.ident().path().extension().await? != "js" {
+                    return Ok(None);
+                }
+
+                if let AssetContent::File(file) = &*chunk.content().await? {
+                    let file = file.await?;
+
+                    return Ok(Some(file));
+                }
+
+                Ok(None)
+            })
+            .try_join()
+            .await?
+            .into_iter()
+            .filter_map(|x| x);
+
+        for file in files {
+            if let FileContent::Content(file) = &*file {
+                content.concat(file.content());
+                use std::io::Write;
+                write!(content, "\n")?;
+            }
+        }
+        Ok(AssetContentVc::cell(AssetContent::File(
+            FileContentVc::cell(FileContent::Content(content.build().into())),
+        )))
+    }
+
+    #[turbo_tasks::function]
+    async fn references(&self) -> Result<AssetReferencesVc> {
+        let mut references = Vec::new();
+        for chunk in &*self.chunks.await? {
+            references.push(ChunkReferenceVc::new_parallel(*chunk).into());
+        }
+        Ok(AssetReferencesVc::cell(references))
+    }
 }
 
 #[derive(Serialize, Default)]

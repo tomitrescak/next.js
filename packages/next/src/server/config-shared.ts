@@ -519,7 +519,6 @@ export interface NextConfig extends Record<string, any> {
       src: string
       artifactDirectory?: string
       language?: 'typescript' | 'javascript' | 'flow'
-      eagerEsModules?: boolean
     }
     removeConsole?:
       | boolean
