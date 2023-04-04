@@ -36,6 +36,7 @@ import { PassThrough } from 'node:stream'
 ;('TURBOPACK { transition: next-layout-entry; chunking-type: isolatedParallel }')
 // @ts-ignore
 import layoutEntry, {
+  // @ts-ignore
   chunks as layoutEntryClientChunks,
 } from '@vercel/turbopack-next/entry/app/layout-entry'
 
