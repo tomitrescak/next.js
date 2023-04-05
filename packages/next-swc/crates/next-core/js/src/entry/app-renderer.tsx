@@ -32,7 +32,6 @@ import { ServerResponseShim } from '@vercel/turbopack-next/internal/http'
 import { headersFromEntries } from '@vercel/turbopack-next/internal/headers'
 import { parse, ParsedUrlQuery } from 'node:querystring'
 import { PassThrough } from 'node:stream'
-
 ;('TURBOPACK { transition: next-layout-entry; chunking-type: isolatedParallel }')
 // @ts-ignore
 import layoutEntry, {
