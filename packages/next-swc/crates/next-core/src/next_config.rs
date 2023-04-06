@@ -28,7 +28,9 @@ use turbo_binding::{
             execution_context::{ExecutionContext, ExecutionContextVc},
             transforms::webpack::{WebpackLoaderConfigItems, WebpackLoaderConfigItemsVc},
         },
-        turbopack::evaluate_context::node_evaluate_asset_context,
+        turbopack::{
+            evaluate_context::node_evaluate_asset_context, module_options::EmotionTransformConfig,
+        },
     },
 };
 use turbo_tasks::{
@@ -419,11 +421,18 @@ enum MiddlewarePrefetchType {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TraceRawVcs)]
+#[serde(untagged)]
+pub enum EmotionTransformOptionsOrBoolean {
+    Boolean(bool),
+    Options(EmotionTransformConfig),
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TraceRawVcs)]
 #[serde(rename_all = "camelCase")]
 pub struct CompilerConfig {
     pub react_remove_properties: Option<bool>,
     pub relay: Option<RelayConfig>,
-    pub emotion: Option<serde_json::Value>,
+    pub emotion: Option<EmotionTransformOptionsOrBoolean>,
     pub remove_console: Option<RemoveConsoleConfig>,
 }
 
